@@ -49,6 +49,8 @@ declare namespace Manifesto {
         static MANIFEST: IIIFResourceType;
         static RANGE: IIIFResourceType;
         static SEQUENCE: IIIFResourceType;
+        static IMAGE: IIIFResourceType;
+        image(): IIIFResourceType;
         annotation(): IIIFResourceType;
         canvas(): IIIFResourceType;
         collection(): IIIFResourceType;
@@ -142,6 +144,9 @@ declare namespace Manifesto {
         static IIIF2IMAGELEVEL1PROFILE: ServiceProfile;
         static IIIF2IMAGELEVEL2: ServiceProfile;
         static IIIF2IMAGELEVEL2PROFILE: ServiceProfile;
+        static IIIF3IMAGELEVEL0: ServiceProfile;
+        static IIIF3IMAGELEVEL1: ServiceProfile;
+        static IIIF3IMAGELEVEL2: ServiceProfile;
         static AUTHCLICKTHROUGH: ServiceProfile;
         static AUTHLOGIN: ServiceProfile;
         static AUTHLOGOUT: ServiceProfile;
@@ -155,6 +160,7 @@ declare namespace Manifesto {
         static AUTH1TOKEN: ServiceProfile;
         static AUTOCOMPLETE: ServiceProfile;
         static SEARCH: ServiceProfile;
+        static SEARCH_P3: ServiceProfile;
         static TRACKINGEXTENSIONS: ServiceProfile;
         static UIEXTENSIONS: ServiceProfile;
         static PRINTEXTENSIONS: ServiceProfile;
@@ -230,8 +236,9 @@ declare namespace Manifesto {
         context: string;
         id: string;
         __jsonld: any;
+        aliases: any;
         constructor(jsonld?: any);
-        getProperty(name: string): any;
+        getProperty(name: string, defaultValue?: any): any;
     }
 }
 
@@ -279,8 +286,10 @@ declare namespace Manifesto {
         getMaxDimensions(): Size | null;
         getContent(): IAnnotation[];
         getDuration(): number | null;
+        getP3Images(): IAnnotation[];
         getImages(): IAnnotation[];
         getIndex(): number;
+        getAnnotations(): Promise<AnnotationList[]>;
         getOtherContent(): Promise<AnnotationList[]>;
         getWidth(): number;
         getHeight(): number;
@@ -336,6 +345,7 @@ declare namespace Manifesto {
         isPagingEnabled(): boolean;
         getViewingDirection(): ViewingDirection;
         getViewingHint(): ViewingHint;
+        getSearchService(): IService | null;
     }
 }
 
@@ -519,12 +529,15 @@ declare namespace Manifesto {
     }
 }
 
-declare var http: any;
-declare var https: any;
-declare var url: any;
+declare const http: any;
+declare const https: any;
+declare const url: any;
+declare var require: any;
+declare var module: any;
 declare var manifesto: IManifesto;
 declare namespace Manifesto {
     class Utils {
+        static createAnnotation(jsonLd: any, options: any): Annotation;
         static getMediaType(type: string): string;
         static getImageQuality(profile: Manifesto.ServiceProfile): string;
         static getInexactLocale(locale: string): string;
@@ -604,6 +617,7 @@ declare namespace Manifesto {
         getOn(): string;
         getTarget(): string | null;
         getResource(): Resource;
+        getImageService(): IService | null;
     }
 }
 
@@ -839,6 +853,7 @@ declare namespace Manifesto {
         options: IManifestoOptions;
         getLabel(): TranslationCollection;
         getMetadata(): MetadataItem[];
+        getIIIFResourceType(): IIIFResourceType;
         getRendering(format: RenderingFormat | string): IRendering | null;
         getRenderings(): IRendering[];
         getService(profile: ServiceProfile | string): IService | null;
