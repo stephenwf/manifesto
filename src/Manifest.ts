@@ -1,7 +1,7 @@
 namespace Manifesto {
     export class Manifest extends IIIFResource implements IManifest {
         public index: number = 0;
-        private _allRanges: IRange[] | null = null; 
+        private _allRanges: IRange[] | null = null;
         public items: ISequence[] = [];
         private _topRanges: IRange[] = [];
 
@@ -12,14 +12,28 @@ namespace Manifesto {
                 const topRanges: any[] = this._getTopRanges();
 
                 for (let i = 0; i < topRanges.length; i++) {
-                    const range: any = topRanges[i]; 
+                    const range: any = topRanges[i];
                     this._parseRanges(range, String(i));
                 }
             }
         }
 
+        getBehavior(): Behavior | null {
+            let behavior: any = this.getProperty('behavior');
+
+            if (Array.isArray(behavior)) {
+                behavior = behavior[0];
+            }
+
+            if (behavior) {
+                return new Behavior(behavior);
+            }
+
+            return null;
+        }
+
         public getDefaultTree(): ITreeNode {
-            
+
             super.getDefaultTree();
 
             this.defaultTree.data.type = Utils.normaliseType(TreeNodeType.MANIFEST.toString());
@@ -34,7 +48,7 @@ namespace Manifesto {
             if (topRanges.length) {
                 topRanges[0].getTree(this.defaultTree);
             }
-            
+
             Manifesto.Utils.generateTreeNodeIds(this.defaultTree);
 
             return this.defaultTree;
@@ -129,13 +143,13 @@ namespace Manifesto {
                         const id: string = item.id || item['@id'];
 
                         range.canvases.push(id);
-                    } 
+                    }
                 }
             } else if (r.ranges) {
                 for (let i = 0; i < r.ranges.length; i++) {
                     this._parseRanges(r.ranges[i], path + '/' + i, range);
                 }
-            }       
+            }
         }
 
         getAllRanges(): IRange[] {
@@ -152,7 +166,7 @@ namespace Manifesto {
                 if (topRange.id){
                     this._allRanges.push(topRange); // it might be a placeholder root range
                 }
-                const subRanges: IRange[] = topRange.getRanges();        
+                const subRanges: IRange[] = topRange.getRanges();
                 this._allRanges = this._allRanges.concat(subRanges.en().traverseUnique(range => range.getRanges()).toArray());
             }
 
@@ -188,14 +202,15 @@ namespace Manifesto {
         }
 
         getSequences(): ISequence[]{
-            
+
             if (this.items.length)  {
                 return this.items;
             }
 
             // IxIF mediaSequences overrode sequences, so need to be checked first.
             // deprecate this when presentation 3 ships
-            const items: any = this.__jsonld.items || this.__jsonld.mediaSequences || this.__jsonld.sequences;
+            let items: any = this.__jsonld.mediaSequences || this.__jsonld.sequences;
+
 
             if (items) {
                 for (let i = 0; i < items.length; i++) {
@@ -203,6 +218,9 @@ namespace Manifesto {
                     const sequence: any = new Sequence(s, this.options);
                     this.items.push(sequence);
                 }
+            } else if (this.__jsonld.items) {
+                const sequence: any = new Sequence(this.__jsonld.items, this.options);
+                this.items.push(sequence);
             }
 
             return this.items;
@@ -237,23 +255,45 @@ namespace Manifesto {
         }
 
         isPagingEnabled(): boolean {
-            return this.getViewingHint().toString() === Manifesto.ViewingHint.PAGED.toString();
+
+            const viewingHint: ViewingHint | null = this.getViewingHint();
+
+            if (viewingHint) {
+                return viewingHint.toString() === Manifesto.ViewingHint.PAGED.toString();
+            }
+
+            return false;
         }
 
-        getViewingDirection(): ViewingDirection {
-            if (this.getProperty('viewingDirection')){
+        getViewingDirection(): ViewingDirection | null {
+            if (this.getProperty('viewingDirection')) {
                 return new ViewingDirection(this.getProperty('viewingDirection'));
             }
 
-            return ViewingDirection.LEFTTORIGHT;
+            return null;
         }
 
-        getViewingHint(): ViewingHint {
+        getViewingHint(): ViewingHint | null {
             if (this.getProperty('viewingHint')){
                 return new ViewingHint(this.getProperty('viewingHint'));
             }
 
-            return ViewingHint.EMPTY;
+            return null;
+        }
+
+        public getSearchService(): IService | null {
+            const services = this.getServices();
+
+            return services.reduce((found: IService | null, candidateService: IService) => {
+                return found || (
+                    (
+                        candidateService.getProfile().toString() === ServiceProfile.SEARCH.toString() ||
+                        candidateService.getProfile().toString() === ServiceProfile.SEARCH_P3.toString()
+                    )
+                    ? candidateService
+                    : null
+                )
+            }, null);
         }
     }
 }

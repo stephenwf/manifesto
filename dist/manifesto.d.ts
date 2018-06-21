@@ -1,10 +1,19 @@
-// manifesto v2.2.10 https://github.com/iiif-commons/manifesto
+// manifesto v2.2.25 https://github.com/iiif-commons/manifesto
 
 declare namespace Manifesto {
     class StringValue {
         value: string;
         constructor(value?: string);
         toString(): string;
+    }
+}
+
+declare namespace Manifesto {
+    class Duration {
+        start: number;
+        end: number;
+        constructor(start: number, end: number);
+        getLength(): number;
     }
 }
 
@@ -42,6 +51,15 @@ declare namespace Manifesto {
 }
 
 declare namespace Manifesto {
+    class Behavior extends StringValue {
+        static AUTOADVANCE: Behavior;
+        static NONAV: Behavior;
+        autoadvance(): Behavior;
+        nonav(): Behavior;
+    }
+}
+
+declare namespace Manifesto {
     class IIIFResourceType extends StringValue {
         static ANNOTATION: IIIFResourceType;
         static CANVAS: IIIFResourceType;
@@ -49,6 +67,8 @@ declare namespace Manifesto {
         static MANIFEST: IIIFResourceType;
         static RANGE: IIIFResourceType;
         static SEQUENCE: IIIFResourceType;
+        static IMAGE: IIIFResourceType;
+        image(): IIIFResourceType;
         annotation(): IIIFResourceType;
         canvas(): IIIFResourceType;
         collection(): IIIFResourceType;
@@ -142,6 +162,9 @@ declare namespace Manifesto {
         static IIIF2IMAGELEVEL1PROFILE: ServiceProfile;
         static IIIF2IMAGELEVEL2: ServiceProfile;
         static IIIF2IMAGELEVEL2PROFILE: ServiceProfile;
+        static IIIF3IMAGELEVEL0: ServiceProfile;
+        static IIIF3IMAGELEVEL1: ServiceProfile;
+        static IIIF3IMAGELEVEL2: ServiceProfile;
         static AUTHCLICKTHROUGH: ServiceProfile;
         static AUTHLOGIN: ServiceProfile;
         static AUTHLOGOUT: ServiceProfile;
@@ -155,6 +178,7 @@ declare namespace Manifesto {
         static AUTH1TOKEN: ServiceProfile;
         static AUTOCOMPLETE: ServiceProfile;
         static SEARCH: ServiceProfile;
+        static SEARCH_P3: ServiceProfile;
         static TRACKINGEXTENSIONS: ServiceProfile;
         static UIEXTENSIONS: ServiceProfile;
         static PRINTEXTENSIONS: ServiceProfile;
@@ -230,8 +254,9 @@ declare namespace Manifesto {
         context: string;
         id: string;
         __jsonld: any;
+        aliases: any;
         constructor(jsonld?: any);
-        getProperty(name: string): any;
+        getProperty(name: string, defaultValue?: any): any;
     }
 }
 
@@ -279,8 +304,10 @@ declare namespace Manifesto {
         getMaxDimensions(): Size | null;
         getContent(): IAnnotation[];
         getDuration(): number | null;
+        getP3Images(): IAnnotation[];
         getImages(): IAnnotation[];
         getIndex(): number;
+        getAnnotations(): Promise<AnnotationList[]>;
         getOtherContent(): Promise<AnnotationList[]>;
         getWidth(): number;
         getHeight(): number;
@@ -319,6 +346,7 @@ declare namespace Manifesto {
         items: ISequence[];
         private _topRanges;
         constructor(jsonld?: any, options?: IManifestoOptions);
+        getBehavior(): Behavior | null;
         getDefaultTree(): ITreeNode;
         private _getTopRanges();
         getTopRanges(): IRange[];
@@ -334,8 +362,9 @@ declare namespace Manifesto {
         getTrackingLabel(): string;
         isMultiSequence(): boolean;
         isPagingEnabled(): boolean;
-        getViewingDirection(): ViewingDirection;
-        getViewingHint(): ViewingHint;
+        getViewingDirection(): ViewingDirection | null;
+        getViewingHint(): ViewingHint | null;
+        getSearchService(): IService | null;
     }
 }
 
@@ -372,10 +401,13 @@ declare namespace Manifesto {
         treeNode: ITreeNode;
         constructor(jsonld?: any, options?: IManifestoOptions);
         getCanvasIds(): string[];
+        getDuration(): Duration | undefined;
         getRanges(): IRange[];
+        getBehavior(): Behavior | null;
         getViewingDirection(): ViewingDirection | null;
         getViewingHint(): ViewingHint | null;
         getTree(treeRoot: ITreeNode): ITreeNode;
+        spansTime(time: number): boolean;
         private _parseTreeNode(node, range);
     }
 }
@@ -407,8 +439,8 @@ declare namespace Manifesto {
         getThumbnails(): Manifesto.IThumbnail[];
         getStartCanvas(): string;
         getTotalCanvases(): number;
-        getViewingDirection(): ViewingDirection;
-        getViewingHint(): ViewingHint;
+        getViewingDirection(): ViewingDirection | null;
+        getViewingHint(): ViewingHint | null;
         isCanvasIndexOutOfRange(canvasIndex: number): boolean;
         isFirstCanvas(canvasIndex: number): boolean;
         isLastCanvas(canvasIndex: number): boolean;
@@ -519,12 +551,15 @@ declare namespace Manifesto {
     }
 }
 
-declare var http: any;
-declare var https: any;
-declare var url: any;
+declare const http: any;
+declare const https: any;
+declare const url: any;
+declare var require: any;
+declare var module: any;
 declare var manifesto: IManifesto;
 declare namespace Manifesto {
     class Utils {
+        static createAnnotation(jsonLd: any, options: any): Annotation;
         static getMediaType(type: string): string;
         static getImageQuality(profile: Manifesto.ServiceProfile): string;
         static getInexactLocale(locale: string): string;
@@ -604,6 +639,7 @@ declare namespace Manifesto {
         getOn(): string;
         getTarget(): string | null;
         getResource(): Resource;
+        getImageService(): IService | null;
     }
 }
 
@@ -784,6 +820,7 @@ declare namespace Manifesto {
 declare namespace Manifesto {
     interface IManifest extends Manifesto.IIIIFResource {
         getAllRanges(): IRange[];
+        getBehavior(): Behavior | null;
         getManifestType(): ManifestType;
         getRangeById(id: string): Manifesto.IRange | null;
         getRangeByPath(path: string): IRange | null;
@@ -792,8 +829,8 @@ declare namespace Manifesto {
         getTopRanges(): IRange[];
         getTotalSequences(): number;
         getTrackingLabel(): string;
-        getViewingDirection(): Manifesto.ViewingDirection;
-        getViewingHint(): ViewingHint;
+        getViewingDirection(): Manifesto.ViewingDirection | null;
+        getViewingHint(): ViewingHint | null;
         isMultiSequence(): boolean;
         isPagingEnabled(): boolean;
         items: ISequence[];
@@ -802,6 +839,7 @@ declare namespace Manifesto {
 
 interface IManifesto {
     AnnotationMotivation: Manifesto.AnnotationMotivation;
+    Behavior: Manifesto.Behavior;
     create: (manifest: string, options?: Manifesto.IManifestoOptions) => Manifesto.IIIIFResource;
     IIIFResourceType: Manifesto.IIIFResourceType;
     loadManifest: (uri: string) => Promise<string>;
@@ -839,6 +877,7 @@ declare namespace Manifesto {
         options: IManifestoOptions;
         getLabel(): TranslationCollection;
         getMetadata(): MetadataItem[];
+        getIIIFResourceType(): IIIFResourceType;
         getRendering(format: RenderingFormat | string): IRendering | null;
         getRenderings(): IRendering[];
         getService(profile: ServiceProfile | string): IService | null;
@@ -855,7 +894,9 @@ declare namespace Manifesto {
 declare namespace Manifesto {
     interface IRange extends IManifestResource {
         canvases: string[] | null;
+        getBehavior(): Behavior | null;
         getCanvasIds(): string[];
+        getDuration(): Duration | undefined;
         getRanges(): IRange[];
         getTree(treeRoot: ITreeNode): ITreeNode;
         getViewingDirection(): ViewingDirection | null;
@@ -863,6 +904,7 @@ declare namespace Manifesto {
         items: IManifestResource[];
         parentRange: IRange | undefined;
         path: string;
+        spansTime(time: number): boolean;
         treeNode: ITreeNode;
     }
 }
@@ -903,8 +945,8 @@ declare namespace Manifesto {
         getThumbnails(): Manifesto.IThumbnail[];
         getThumbs(width: number, height: number): Manifesto.IThumb[];
         getTotalCanvases(): number;
-        getViewingDirection(): Manifesto.ViewingDirection;
-        getViewingHint(): Manifesto.ViewingHint;
+        getViewingDirection(): Manifesto.ViewingDirection | null;
+        getViewingHint(): Manifesto.ViewingHint | null;
         isCanvasIndexOutOfRange(index: number): boolean;
         isFirstCanvas(index: number): boolean;
         isLastCanvas(index: number): boolean;
