@@ -2,7 +2,6 @@ namespace Manifesto {
     export interface IManifestResource extends IJSONLDResource {
         externalResource: Manifesto.IExternalResource;
         options: IManifestoOptions;
-        getMetadata(): MetadataItem[];
         getIIIFResourceType(): IIIFResourceType;
         getDefaultLabel(): string | null;
         getLabel(): LanguageMap;

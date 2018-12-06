@@ -353,10 +353,10 @@ declare namespace Manifesto {
         getPosterCanvas(): ICanvas | null;
         getBehavior(): Behavior | null;
         getDefaultTree(): ITreeNode;
-        private _getTopRanges();
+        private _getTopRanges;
         getTopRanges(): IRange[];
-        private _getRangeById(id);
-        private _parseRanges(r, path, parentRange?);
+        private _getRangeById;
+        private _parseRanges;
         getAllRanges(): IRange[];
         getRangeById(id: string): IRange | null;
         getRangeByPath(path: string): IRange | null;
@@ -391,8 +391,8 @@ declare namespace Manifesto {
          * Get a tree of sub collections and manifests, using each child manifest's first 'top' range.
          */
         getDefaultTree(): ITreeNode;
-        private _parseManifests(parentCollection);
-        private _parseCollections(parentCollection);
+        private _parseManifests;
+        private _parseCollections;
     }
 }
 
@@ -413,7 +413,7 @@ declare namespace Manifesto {
         getViewingHint(): ViewingHint | null;
         getTree(treeRoot: ITreeNode): ITreeNode;
         spansTime(time: number): boolean;
-        private _parseTreeNode(node, range);
+        private _parseTreeNode;
     }
 }
 
@@ -589,11 +589,12 @@ declare namespace Manifesto {
         static createRestrictedError(): Error;
         static createInternalServerError(message: string): Error;
         static authorize(resource: IExternalResource, tokenStorageStrategy: string, clickThrough: (resource: IExternalResource) => Promise<any>, restricted: (resource: IExternalResource) => Promise<any>, login: (resource: IExternalResource) => Promise<any>, getAccessToken: (resource: IExternalResource, rejectOnError: boolean) => Promise<IAccessToken>, storeAccessToken: (resource: IExternalResource, token: IAccessToken, tokenStorageStrategy: string) => Promise<any>, getStoredAccessToken: (resource: IExternalResource, tokenStorageStrategy: string) => Promise<IAccessToken>): Promise<IExternalResource>;
-        private static showAuthInteraction(resource, tokenStorageStrategy, clickThrough, restricted, login, getAccessToken, storeAccessToken, resolve, reject);
+        private static showAuthInteraction;
         static getService(resource: any, profile: ServiceProfile | string): IService | null;
         static getResourceById(parentResource: IJSONLDResource, id: string): IJSONLDResource;
         static getAllArrays(obj: any): any[];
         static getServices(resource: any): IService[];
+        static getTemporalComponent(target: string): number[] | null;
     }
 }
 
@@ -843,6 +844,27 @@ declare namespace Manifesto {
         isMultiSequence(): boolean;
         isPagingEnabled(): boolean;
         items: ISequence[];
+    }
+}
+
+declare namespace Manifesto {
+    interface IManifestResource extends IJSONLDResource {
+        externalResource: Manifesto.IExternalResource;
+        options: IManifestoOptions;
+        getIIIFResourceType(): IIIFResourceType;
+        getDefaultLabel(): string | null;
+        getLabel(): LanguageMap;
+        getMetadata(): LabelValuePair[];
+        getRendering(format: RenderingFormat | string): IRendering | null;
+        getRenderings(): IRendering[];
+        getService(profile: ServiceProfile | string): IService | null;
+        getServices(): IService[];
+        getThumbnail(): Thumbnail | null;
+        isAnnotation(): boolean;
+        isCanvas(): boolean;
+        isManifest(): boolean;
+        isRange(): boolean;
+        isSequence(): boolean;
     }
 }
 
