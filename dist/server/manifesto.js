@@ -246,6 +246,9 @@ var Manifesto;
             return _super !== null && _super.apply(this, arguments) || this;
         }
         // todo: use getters when ES3 target is no longer required.
+        IIIFResourceType.prototype.image = function () {
+            return new IIIFResourceType(IIIFResourceType.IMAGE.toString());
+        };
         IIIFResourceType.prototype.annotation = function () {
             return new IIIFResourceType(IIIFResourceType.ANNOTATION.toString());
         };
@@ -270,6 +273,7 @@ var Manifesto;
         IIIFResourceType.MANIFEST = new IIIFResourceType("manifest");
         IIIFResourceType.RANGE = new IIIFResourceType("range");
         IIIFResourceType.SEQUENCE = new IIIFResourceType("sequence");
+        IIIFResourceType.IMAGE = new IIIFResourceType("image");
         return IIIFResourceType;
     }(Manifesto.StringValue));
     Manifesto.IIIFResourceType = IIIFResourceType;
@@ -597,6 +601,10 @@ var Manifesto;
         ServiceProfile.IIIF2IMAGELEVEL1PROFILE = new ServiceProfile("http://iiif.io/api/image/2/profiles/level1.json");
         ServiceProfile.IIIF2IMAGELEVEL2 = new ServiceProfile("http://iiif.io/api/image/2/level2.json");
         ServiceProfile.IIIF2IMAGELEVEL2PROFILE = new ServiceProfile("http://iiif.io/api/image/2/profiles/level2.json");
+        // P3
+        ServiceProfile.IIIF3IMAGELEVEL0 = new ServiceProfile("level0");
+        ServiceProfile.IIIF3IMAGELEVEL1 = new ServiceProfile("level1");
+        ServiceProfile.IIIF3IMAGELEVEL2 = new ServiceProfile("level2");
         // auth api
         ServiceProfile.AUTHCLICKTHROUGH = new ServiceProfile("http://iiif.io/api/auth/0/login/clickthrough");
         ServiceProfile.AUTHLOGIN = new ServiceProfile("http://iiif.io/api/auth/0/login");
@@ -613,6 +621,7 @@ var Manifesto;
         // search api
         ServiceProfile.AUTOCOMPLETE = new ServiceProfile("http://iiif.io/api/search/0/autocomplete");
         ServiceProfile.SEARCH = new ServiceProfile("http://iiif.io/api/search/0/search");
+        ServiceProfile.SEARCH_P3 = new ServiceProfile("search");
         // extensions
         ServiceProfile.TRACKINGEXTENSIONS = new ServiceProfile("http://universalviewer.io/tracking-extensions-profile");
         ServiceProfile.UIEXTENSIONS = new ServiceProfile("http://universalviewer.io/ui-extensions-profile");
@@ -723,17 +732,28 @@ var Manifesto;
     var JSONLDResource = /** @class */ (function () {
         function JSONLDResource(jsonld) {
             this.__jsonld = jsonld;
+            this.aliases = {
+                images: 'items',
+                sequences: 'items',
+                canvases: 'items',
+            };
             this.context = this.getProperty('context');
             this.id = this.getProperty('id');
         }
-        JSONLDResource.prototype.getProperty = function (name) {
+        JSONLDResource.prototype.getProperty = function (name, defaultValue) {
             var prop = null;
             if (this.__jsonld) {
                 prop = this.__jsonld[name];
+                if (!prop && this.aliases[name]) {
+                    return this.getProperty(this.aliases[name]);
+                }
                 if (!prop) {
                     // property may have a prepended '@'
                     prop = this.__jsonld['@' + name];
                 }
+            }
+            if (!prop && typeof defaultValue !== 'undefined') {
+                prop = defaultValue;
             }
             return prop;
         };
@@ -1007,12 +1027,7 @@ var Manifesto;
                             return thumbnail;
                         }
                         else {
-                            if (thumbnail['@id']) {
-                                return thumbnail['@id'];
-                            }
-                            else if (thumbnail.length) {
-                                return thumbnail[0].id;
-                            }
+                            return thumbnail['@id'];
                         }
                     }
                 }
@@ -1022,8 +1037,7 @@ var Manifesto;
             if (id && id.endsWith('/')) {
                 id = id.substr(0, id.length - 1);
             }
-            var uri = [id, region, size, rotation, quality + '.jpg'].join('/');
-            return uri;
+            return [id, region, size, rotation, quality + '.jpg'].join('/');
         };
         Canvas.prototype.getMaxDimensions = function () {
             var maxDimensions = null;
@@ -1064,19 +1078,51 @@ var Manifesto;
         Canvas.prototype.getDuration = function () {
             return this.getProperty('duration');
         };
+        Canvas.prototype.getP3Images = function () {
+            return this.getContent().filter(function (annotation) {
+                // Grab all bodies
+                var bodies = annotation.getBody();
+                // No bodies, definitely not an image.
+                if (!bodies.length) {
+                    return false;
+                }
+                // Reduce all the bodies into a boolean
+                return bodies.reduce(function (hasImage, body) {
+                    // Check for the image type in the body
+                    return hasImage || body.getIIIFResourceType().toString() === Manifesto.IIIFResourceType.IMAGE.toString();
+                }, false);
+            });
+        };
         Canvas.prototype.getImages = function () {
-            var images = [];
-            if (!this.__jsonld.images)
-                return images;
-            for (var i = 0; i < this.__jsonld.images.length; i++) {
-                var a = this.__jsonld.images[i];
-                var annotation = new Manifesto.Annotation(a, this.options);
-                images.push(annotation);
-            }
-            return images;
+            var _this = this;
+            var iterable = this.getProperty('images', []);
+            return (iterable || []).reduce(function (list, annotation) {
+                if (annotation.type === 'AnnotationPage') {
+                    return annotation.items.reduce(function (list, annotation) {
+                        list.push(new Manifesto.Annotation(annotation, _this.options));
+                        return list;
+                    }, list);
+                }
+                list.push(new Manifesto.Annotation(annotation, _this.options));
+                return list;
+            }, []);
         };
         Canvas.prototype.getIndex = function () {
             return this.getProperty('index');
+        };
+        Canvas.prototype.getAnnotations = function () {
+            var _this = this;
+            var annotationProperty = this.getProperty('annotations');
+            if (!annotationProperty) {
+                return Promise.resolve([]);
+            }
+            var annotations = Array.isArray(annotationProperty) ?
+                annotationProperty :
+                [annotationProperty];
+            var annotationPromises = annotations
+                .map(function (annotationList, i) { return ((new Manifesto.AnnotationList(annotationList.label || "Annotation list " + i, annotationList, _this.options))); })
+                .map(function (annotationList) { return annotationList.load(); });
+            return Promise.all(annotationPromises);
         };
         Canvas.prototype.getOtherContent = function () {
             var _this = this;
@@ -1515,6 +1561,15 @@ var Manifesto;
                 return new Manifesto.ViewingHint(this.getProperty('viewingHint'));
             }
             return null;
+        };
+        Manifest.prototype.getSearchService = function () {
+            var services = this.getServices();
+            return services.reduce(function (found, candidateService) {
+                return found || ((candidateService.getProfile().toString() === Manifesto.ServiceProfile.SEARCH.toString() ||
+                    candidateService.getProfile().toString() === Manifesto.ServiceProfile.SEARCH_P3.toString())
+                    ? candidateService
+                    : null);
+            }, null);
         };
         return Manifest;
     }(Manifesto.IIIFResource));
@@ -2432,14 +2487,17 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-var http = require('http');
-var https = require('https');
-var url = require('url');
+var http = require("http");
+var https = require("https");
+var url = require("url");
 var Manifesto;
 (function (Manifesto) {
     var Utils = /** @class */ (function () {
         function Utils() {
         }
+        Utils.createAnnotation = function (jsonLd, options) {
+            return new Manifesto.Annotation(jsonLd, options);
+        };
         Utils.getMediaType = function (type) {
             type = type.toLowerCase();
             type = type.split(';')[0];
@@ -2553,7 +2611,10 @@ var Manifesto;
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1PROFILE.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2.toString()) ||
-                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString())) {
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL0.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL1.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL2.toString())) {
                 return true;
             }
             return false;
@@ -2609,7 +2670,7 @@ var Manifesto;
         Utils.loadResource = function (uri) {
             return new Promise(function (resolve, reject) {
                 var u = url.parse(uri);
-                var req;
+                var request;
                 var opts = {
                     host: u.hostname,
                     port: u.port,
@@ -2617,48 +2678,32 @@ var Manifesto;
                     method: "GET",
                     withCredentials: false
                 };
-                switch (u.protocol) {
-                    case 'https:':
-                        req = https.request(opts, function (response) {
-                            var result = "";
-                            response.on('data', function (chunk) {
-                                result += chunk;
-                            });
-                            response.on('end', function () {
-                                resolve(result);
-                            });
+                if (u.protocol === 'https:') {
+                    request = https.request(opts, function (response) {
+                        var result = "";
+                        response.on('data', function (chunk) {
+                            result += chunk;
                         });
-                        req.on('error', function (error) {
-                            reject(error);
+                        response.on('end', function () {
+                            resolve(result);
                         });
-                        req.end();
-                        break;
-                    case 'dat:':
-                        var xhr_1 = new XMLHttpRequest();
-                        xhr_1.onreadystatechange = function () {
-                            if (xhr_1.readyState === 4) {
-                                resolve(xhr_1.response);
-                            }
-                        };
-                        xhr_1.open("GET", uri, true);
-                        xhr_1.send();
-                        break;
-                    default:
-                        req = http.request(opts, function (response) {
-                            var result = "";
-                            response.on('data', function (chunk) {
-                                result += chunk;
-                            });
-                            response.on('end', function () {
-                                resolve(result);
-                            });
-                        });
-                        req.on('error', function (error) {
-                            reject(error);
-                        });
-                        req.end();
-                        break;
+                    });
                 }
+                else {
+                    request = http.request(opts, function (response) {
+                        var result = "";
+                        response.on('data', function (chunk) {
+                            result += chunk;
+                        });
+                        response.on('end', function () {
+                            resolve(result);
+                        });
+                    });
+                }
+                request.on('error', function (error) {
+                    reject(error);
+                });
+                request.end();
             });
         };
         Utils.loadExternalResourcesAuth1 = function (resources, openContentProviderInteraction, openTokenService, getStoredAccessToken, userInteractedWithContentProvider, getContentProviderInteraction, handleMovedTemporarily, showOutOfOptionsMessages) {
@@ -2780,7 +2825,7 @@ var Manifesto;
                             // The difference is in the expected behaviour of
                             //
                             //    await userInteractedWithContentProvider(contentProviderInteraction);
-                            // 
+                            //
                             // For clickthrough the opened window should close immediately having established
                             // a session, whereas for login the user might spend some time entering credentials etc.
                             // Looking for clickthrough pattern
@@ -2822,7 +2867,7 @@ var Manifesto;
                             // nothing worked! Use the most recently tried service as the source of
                             // messages to show to the user.
                             if (lastAttempted) {
-                                showOutOfOptionsMessages(resource, lastAttempted);
+                                showOutOfOptionsMessages(lastAttempted);
                             }
                             return [2 /*return*/];
                     }
@@ -3101,13 +3146,19 @@ var Manifesto;
         };
         Utils.getServices = function (resource) {
             var service;
+            var resourceToQuery = resource.__jsonld ? resource.__jsonld : resource;
             // if passing a manifesto-parsed object, use the __jsonld.service property,
             // otherwise look for a service property (info.json services)
-            if (resource.__jsonld) {
-                service = resource.__jsonld.service;
+            if (resourceToQuery.service) {
+                service = resourceToQuery.service;
             }
-            else {
-                service = resource.service;
+            if (!service && resourceToQuery.body) {
+                if (Array.isArray(resourceToQuery.body)) {
+                    service = resourceToQuery.body[0].service;
+                }
+                else {
+                    service = resourceToQuery.body.service;
+                }
             }
             var services = [];
             if (!service)
@@ -3411,7 +3462,14 @@ var Manifesto;
             return this.getProperty('target');
         };
         Annotation.prototype.getResource = function () {
-            return new Manifesto.Resource(this.getProperty('resource'), this.options);
+            return new Manifesto.Resource(this.getProperty('resource') || this.getProperty('body'), this.options);
+        };
+        Annotation.prototype.getImageService = function () {
+            return this.getBody().reduce(function (finalImageService, body) {
+                return finalImageService || body.getServices().reduce(function (imageService, service) {
+                    return imageService || (Manifesto.Utils.isImageProfile(service.getProfile()) ? service : null);
+                }, finalImageService);
+            }, null);
         };
         return Annotation;
     }(Manifesto.ManifestResource));
@@ -3484,6 +3542,9 @@ var Manifesto;
             var _this = _super.call(this, jsonld) || this;
             _this.label = label;
             _this.options = options;
+            if (_this.getResources().length) {
+                _this.isLoaded = true;
+            }
             return _this;
         }
         AnnotationList.prototype.getIIIFResourceType = function () {
@@ -3494,7 +3555,7 @@ var Manifesto;
         };
         AnnotationList.prototype.getResources = function () {
             var _this = this;
-            var resources = this.getProperty('resources');
+            var resources = this.getProperty('resources') || this.getProperty('items') || [];
             return resources.map(function (resource) { return new Manifesto.Annotation(resource, _this.options); });
         };
         AnnotationList.prototype.load = function () {

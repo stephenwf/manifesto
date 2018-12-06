@@ -1,11 +1,17 @@
-const http = require('http');
-const https = require('https');
-const url = require('url');
+const http = require("http");
+const https = require("https");
+const url = require("url");
 
+declare var require: any;
+declare var module: any;
 declare var manifesto: IManifesto;
 
 namespace Manifesto {
     export class Utils {
+
+        static createAnnotation(jsonLd, options): Annotation {
+            return new Annotation(jsonLd, options);
+        }
 
         static getMediaType(type: string): string {
             type = type.toLowerCase();
@@ -147,7 +153,11 @@ namespace Manifesto {
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1PROFILE.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2.toString()) ||
-                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString())){
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL0.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL1.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL2.toString())
+            ){
                 return true;
             }
 
@@ -219,7 +229,7 @@ namespace Manifesto {
             return new Promise<any>((resolve, reject) => {
                 const u: any = url.parse(uri);
 
-                var req: any;
+                var request: any;
 
                 var opts: any = {
                     host: u.hostname,
@@ -228,53 +238,34 @@ namespace Manifesto {
                     method: "GET",
                     withCredentials: false
                 };
+                
+                if (u.protocol === 'https:'){
+                    request = https.request(opts, (response: any) => {
+                        var result = "";
+                        response.on('data', (chunk: any) => {
+                            result += chunk;
+                        });
+                        response.on('end', () => {
+                            resolve(result);
+                        });
+                    });
+                } else {
+                    request = http.request(opts, (response: any) => {
+                        var result = "";
+                        response.on('data', (chunk: any) => {
+                            result += chunk;
+                        });
+                        response.on('end', () => {
+                            resolve(result);
+                        });
+                    });
+                }              
 
-                switch (u.protocol) {
-                    case 'https:':
-                        req = https.request(opts, (response: any) => {
-                            var result = "";
-                            response.on('data', (chunk: any) => {
-                                result += chunk;
-                            });
-                            response.on('end', () => {
-                                resolve(result);
-                            });
-                        });
+                request.on('error', (error: any) => {
+                    reject(error);
+                });
 
-                        req.on('error', (error: any) => {
-                            reject(error);
-                        });
-        
-                        req.end();
-                    break;
-                    case 'dat:':
-                        const xhr = new XMLHttpRequest();
-                        xhr.onreadystatechange = function() {
-                            if (xhr.readyState === 4) {
-                                resolve(xhr.response);
-                            }
-                        }
-                        xhr.open("GET", uri, true);
-                        xhr.send();
-                    break;
-                    default: 
-                        req = http.request(opts, (response: any) => {
-                            var result = "";
-                            response.on('data', (chunk: any) => {
-                                result += chunk;
-                            });
-                            response.on('end', () => {
-                                resolve(result);
-                            });
-                        });
-
-                        req.on('error', (error: any) => {
-                            reject(error);
-                        });
-        
-                        req.end();
-                    break;
-                }
+                request.end();
             });
         }
 
@@ -286,7 +277,7 @@ namespace Manifesto {
             userInteractedWithContentProvider: (contentProviderInteraction: any) => Promise<any>,
             getContentProviderInteraction: (resource: IExternalResource, service: Manifesto.IService) => Promise<any>,
             handleMovedTemporarily: (resource: IExternalResource) => Promise<any>,
-            showOutOfOptionsMessages: (resource: IExternalResource, service: Manifesto.IService) => void): Promise<IExternalResource[]> {
+            showOutOfOptionsMessages: (service: Manifesto.IService) => void): Promise<IExternalResource[]> {
 
             return new Promise<IExternalResource[]>((resolve, reject) => {
 
@@ -319,7 +310,7 @@ namespace Manifesto {
             userInteractedWithContentProvider: (contentProviderInteraction: any) => Promise<any>,
             getContentProviderInteraction: (resource: IExternalResource, service: Manifesto.IService) => Promise<any>,
             handleMovedTemporarily: (resource: IExternalResource) => Promise<any>,
-            showOutOfOptionsMessages: (resource: IExternalResource, service: Manifesto.IService) => void): Promise<IExternalResource> {
+            showOutOfOptionsMessages: (service: Manifesto.IService) => void): Promise<IExternalResource> {
             
             const storedAccessToken: IAccessToken | null = await getStoredAccessToken(resource);
             
@@ -364,7 +355,7 @@ namespace Manifesto {
             userInteractedWithContentProvider: (contentProviderInteraction: any) => Promise<any>,
             getContentProviderInteraction: (resource: IExternalResource, service: Manifesto.IService) => Promise<any>,
             handleMovedTemporarily: (resource: IExternalResource) => Promise<any>,
-            showOutOfOptionsMessages: (resource: IExternalResource, service: Manifesto.IService) => void): Promise<Manifesto.IExternalResource | void> {
+            showOutOfOptionsMessages: (service: Manifesto.IService) => void): Promise<Manifesto.IExternalResource | void> {
 
             // This function enters the flowchart at the < External? > junction
             // http://iiif.io/api/auth/1.0/#workflow-from-the-browser-client-perspective
@@ -433,7 +424,7 @@ namespace Manifesto {
             // The difference is in the expected behaviour of
             //
             //    await userInteractedWithContentProvider(contentProviderInteraction);
-            // 
+            //
             // For clickthrough the opened window should close immediately having established
             // a session, whereas for login the user might spend some time entering credentials etc.
 
@@ -468,7 +459,7 @@ namespace Manifesto {
             // nothing worked! Use the most recently tried service as the source of
             // messages to show to the user.
             if (lastAttempted) {
-                showOutOfOptionsMessages(resource, lastAttempted);
+                showOutOfOptionsMessages(lastAttempted);
             }
         }
 
@@ -848,13 +839,20 @@ namespace Manifesto {
 
         static getServices(resource: any): IService[] {
             let service: any;
+            const resourceToQuery = resource.__jsonld ? resource.__jsonld : resource;
 
             // if passing a manifesto-parsed object, use the __jsonld.service property,
             // otherwise look for a service property (info.json services)
-            if (resource.__jsonld) {
-                service = resource.__jsonld.service;
-            } else {
-                service = (<any>resource).service;
+            if (resourceToQuery.service) {
+                service = resourceToQuery.service;
+            }
+
+            if (!service && resourceToQuery.body) {
+              if (Array.isArray(resourceToQuery.body)) {
+                service = resourceToQuery.body[0].service;
+              } else {
+                service = resourceToQuery.body.service;
+              }
             }
 
             const services: IService[] = [];

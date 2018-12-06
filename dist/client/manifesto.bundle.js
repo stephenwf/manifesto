@@ -247,6 +247,9 @@ var Manifesto;
             return _super !== null && _super.apply(this, arguments) || this;
         }
         // todo: use getters when ES3 target is no longer required.
+        IIIFResourceType.prototype.image = function () {
+            return new IIIFResourceType(IIIFResourceType.IMAGE.toString());
+        };
         IIIFResourceType.prototype.annotation = function () {
             return new IIIFResourceType(IIIFResourceType.ANNOTATION.toString());
         };
@@ -271,6 +274,7 @@ var Manifesto;
         IIIFResourceType.MANIFEST = new IIIFResourceType("manifest");
         IIIFResourceType.RANGE = new IIIFResourceType("range");
         IIIFResourceType.SEQUENCE = new IIIFResourceType("sequence");
+        IIIFResourceType.IMAGE = new IIIFResourceType("image");
         return IIIFResourceType;
     }(Manifesto.StringValue));
     Manifesto.IIIFResourceType = IIIFResourceType;
@@ -598,6 +602,10 @@ var Manifesto;
         ServiceProfile.IIIF2IMAGELEVEL1PROFILE = new ServiceProfile("http://iiif.io/api/image/2/profiles/level1.json");
         ServiceProfile.IIIF2IMAGELEVEL2 = new ServiceProfile("http://iiif.io/api/image/2/level2.json");
         ServiceProfile.IIIF2IMAGELEVEL2PROFILE = new ServiceProfile("http://iiif.io/api/image/2/profiles/level2.json");
+        // P3
+        ServiceProfile.IIIF3IMAGELEVEL0 = new ServiceProfile("level0");
+        ServiceProfile.IIIF3IMAGELEVEL1 = new ServiceProfile("level1");
+        ServiceProfile.IIIF3IMAGELEVEL2 = new ServiceProfile("level2");
         // auth api
         ServiceProfile.AUTHCLICKTHROUGH = new ServiceProfile("http://iiif.io/api/auth/0/login/clickthrough");
         ServiceProfile.AUTHLOGIN = new ServiceProfile("http://iiif.io/api/auth/0/login");
@@ -614,6 +622,7 @@ var Manifesto;
         // search api
         ServiceProfile.AUTOCOMPLETE = new ServiceProfile("http://iiif.io/api/search/0/autocomplete");
         ServiceProfile.SEARCH = new ServiceProfile("http://iiif.io/api/search/0/search");
+        ServiceProfile.SEARCH_P3 = new ServiceProfile("search");
         // extensions
         ServiceProfile.TRACKINGEXTENSIONS = new ServiceProfile("http://universalviewer.io/tracking-extensions-profile");
         ServiceProfile.UIEXTENSIONS = new ServiceProfile("http://universalviewer.io/ui-extensions-profile");
@@ -724,17 +733,28 @@ var Manifesto;
     var JSONLDResource = /** @class */ (function () {
         function JSONLDResource(jsonld) {
             this.__jsonld = jsonld;
+            this.aliases = {
+                images: 'items',
+                sequences: 'items',
+                canvases: 'items',
+            };
             this.context = this.getProperty('context');
             this.id = this.getProperty('id');
         }
-        JSONLDResource.prototype.getProperty = function (name) {
+        JSONLDResource.prototype.getProperty = function (name, defaultValue) {
             var prop = null;
             if (this.__jsonld) {
                 prop = this.__jsonld[name];
+                if (!prop && this.aliases[name]) {
+                    return this.getProperty(this.aliases[name]);
+                }
                 if (!prop) {
                     // property may have a prepended '@'
                     prop = this.__jsonld['@' + name];
                 }
+            }
+            if (!prop && typeof defaultValue !== 'undefined') {
+                prop = defaultValue;
             }
             return prop;
         };
@@ -1008,12 +1028,7 @@ var Manifesto;
                             return thumbnail;
                         }
                         else {
-                            if (thumbnail['@id']) {
-                                return thumbnail['@id'];
-                            }
-                            else if (thumbnail.length) {
-                                return thumbnail[0].id;
-                            }
+                            return thumbnail['@id'];
                         }
                     }
                 }
@@ -1023,8 +1038,7 @@ var Manifesto;
             if (id && id.endsWith('/')) {
                 id = id.substr(0, id.length - 1);
             }
-            var uri = [id, region, size, rotation, quality + '.jpg'].join('/');
-            return uri;
+            return [id, region, size, rotation, quality + '.jpg'].join('/');
         };
         Canvas.prototype.getMaxDimensions = function () {
             var maxDimensions = null;
@@ -1065,19 +1079,51 @@ var Manifesto;
         Canvas.prototype.getDuration = function () {
             return this.getProperty('duration');
         };
+        Canvas.prototype.getP3Images = function () {
+            return this.getContent().filter(function (annotation) {
+                // Grab all bodies
+                var bodies = annotation.getBody();
+                // No bodies, definitely not an image.
+                if (!bodies.length) {
+                    return false;
+                }
+                // Reduce all the bodies into a boolean
+                return bodies.reduce(function (hasImage, body) {
+                    // Check for the image type in the body
+                    return hasImage || body.getIIIFResourceType().toString() === Manifesto.IIIFResourceType.IMAGE.toString();
+                }, false);
+            });
+        };
         Canvas.prototype.getImages = function () {
-            var images = [];
-            if (!this.__jsonld.images)
-                return images;
-            for (var i = 0; i < this.__jsonld.images.length; i++) {
-                var a = this.__jsonld.images[i];
-                var annotation = new Manifesto.Annotation(a, this.options);
-                images.push(annotation);
-            }
-            return images;
+            var _this = this;
+            var iterable = this.getProperty('images', []);
+            return (iterable || []).reduce(function (list, annotation) {
+                if (annotation.type === 'AnnotationPage') {
+                    return annotation.items.reduce(function (list, annotation) {
+                        list.push(new Manifesto.Annotation(annotation, _this.options));
+                        return list;
+                    }, list);
+                }
+                list.push(new Manifesto.Annotation(annotation, _this.options));
+                return list;
+            }, []);
         };
         Canvas.prototype.getIndex = function () {
             return this.getProperty('index');
+        };
+        Canvas.prototype.getAnnotations = function () {
+            var _this = this;
+            var annotationProperty = this.getProperty('annotations');
+            if (!annotationProperty) {
+                return Promise.resolve([]);
+            }
+            var annotations = Array.isArray(annotationProperty) ?
+                annotationProperty :
+                [annotationProperty];
+            var annotationPromises = annotations
+                .map(function (annotationList, i) { return ((new Manifesto.AnnotationList(annotationList.label || "Annotation list " + i, annotationList, _this.options))); })
+                .map(function (annotationList) { return annotationList.load(); });
+            return Promise.all(annotationPromises);
         };
         Canvas.prototype.getOtherContent = function () {
             var _this = this;
@@ -1516,6 +1562,15 @@ var Manifesto;
                 return new Manifesto.ViewingHint(this.getProperty('viewingHint'));
             }
             return null;
+        };
+        Manifest.prototype.getSearchService = function () {
+            var services = this.getServices();
+            return services.reduce(function (found, candidateService) {
+                return found || ((candidateService.getProfile().toString() === Manifesto.ServiceProfile.SEARCH.toString() ||
+                    candidateService.getProfile().toString() === Manifesto.ServiceProfile.SEARCH_P3.toString())
+                    ? candidateService
+                    : null);
+            }, null);
         };
         return Manifest;
     }(Manifesto.IIIFResource));
@@ -2433,14 +2488,17 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-var http = require('http');
-var https = require('https');
-var url = require('url');
+var http = require("http");
+var https = require("https");
+var url = require("url");
 var Manifesto;
 (function (Manifesto) {
     var Utils = /** @class */ (function () {
         function Utils() {
         }
+        Utils.createAnnotation = function (jsonLd, options) {
+            return new Manifesto.Annotation(jsonLd, options);
+        };
         Utils.getMediaType = function (type) {
             type = type.toLowerCase();
             type = type.split(';')[0];
@@ -2554,7 +2612,10 @@ var Manifesto;
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL1PROFILE.toString()) ||
                 Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2.toString()) ||
-                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString())) {
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF2IMAGELEVEL2PROFILE.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL0.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL1.toString()) ||
+                Utils.normalisedUrlsMatch(profile.toString(), Manifesto.ServiceProfile.IIIF3IMAGELEVEL2.toString())) {
                 return true;
             }
             return false;
@@ -2610,7 +2671,7 @@ var Manifesto;
         Utils.loadResource = function (uri) {
             return new Promise(function (resolve, reject) {
                 var u = url.parse(uri);
-                var req;
+                var request;
                 var opts = {
                     host: u.hostname,
                     port: u.port,
@@ -2618,48 +2679,32 @@ var Manifesto;
                     method: "GET",
                     withCredentials: false
                 };
-                switch (u.protocol) {
-                    case 'https:':
-                        req = https.request(opts, function (response) {
-                            var result = "";
-                            response.on('data', function (chunk) {
-                                result += chunk;
-                            });
-                            response.on('end', function () {
-                                resolve(result);
-                            });
+                if (u.protocol === 'https:') {
+                    request = https.request(opts, function (response) {
+                        var result = "";
+                        response.on('data', function (chunk) {
+                            result += chunk;
                         });
-                        req.on('error', function (error) {
-                            reject(error);
+                        response.on('end', function () {
+                            resolve(result);
                         });
-                        req.end();
-                        break;
-                    case 'dat:':
-                        var xhr_1 = new XMLHttpRequest();
-                        xhr_1.onreadystatechange = function () {
-                            if (xhr_1.readyState === 4) {
-                                resolve(xhr_1.response);
-                            }
-                        };
-                        xhr_1.open("GET", uri, true);
-                        xhr_1.send();
-                        break;
-                    default:
-                        req = http.request(opts, function (response) {
-                            var result = "";
-                            response.on('data', function (chunk) {
-                                result += chunk;
-                            });
-                            response.on('end', function () {
-                                resolve(result);
-                            });
-                        });
-                        req.on('error', function (error) {
-                            reject(error);
-                        });
-                        req.end();
-                        break;
+                    });
                 }
+                else {
+                    request = http.request(opts, function (response) {
+                        var result = "";
+                        response.on('data', function (chunk) {
+                            result += chunk;
+                        });
+                        response.on('end', function () {
+                            resolve(result);
+                        });
+                    });
+                }
+                request.on('error', function (error) {
+                    reject(error);
+                });
+                request.end();
             });
         };
         Utils.loadExternalResourcesAuth1 = function (resources, openContentProviderInteraction, openTokenService, getStoredAccessToken, userInteractedWithContentProvider, getContentProviderInteraction, handleMovedTemporarily, showOutOfOptionsMessages) {
@@ -2781,7 +2826,7 @@ var Manifesto;
                             // The difference is in the expected behaviour of
                             //
                             //    await userInteractedWithContentProvider(contentProviderInteraction);
-                            // 
+                            //
                             // For clickthrough the opened window should close immediately having established
                             // a session, whereas for login the user might spend some time entering credentials etc.
                             // Looking for clickthrough pattern
@@ -2823,7 +2868,7 @@ var Manifesto;
                             // nothing worked! Use the most recently tried service as the source of
                             // messages to show to the user.
                             if (lastAttempted) {
-                                showOutOfOptionsMessages(resource, lastAttempted);
+                                showOutOfOptionsMessages(lastAttempted);
                             }
                             return [2 /*return*/];
                     }
@@ -3102,13 +3147,19 @@ var Manifesto;
         };
         Utils.getServices = function (resource) {
             var service;
+            var resourceToQuery = resource.__jsonld ? resource.__jsonld : resource;
             // if passing a manifesto-parsed object, use the __jsonld.service property,
             // otherwise look for a service property (info.json services)
-            if (resource.__jsonld) {
-                service = resource.__jsonld.service;
+            if (resourceToQuery.service) {
+                service = resourceToQuery.service;
             }
-            else {
-                service = resource.service;
+            if (!service && resourceToQuery.body) {
+                if (Array.isArray(resourceToQuery.body)) {
+                    service = resourceToQuery.body[0].service;
+                }
+                else {
+                    service = resourceToQuery.body.service;
+                }
             }
             var services = [];
             if (!service)
@@ -3412,7 +3463,14 @@ var Manifesto;
             return this.getProperty('target');
         };
         Annotation.prototype.getResource = function () {
-            return new Manifesto.Resource(this.getProperty('resource'), this.options);
+            return new Manifesto.Resource(this.getProperty('resource') || this.getProperty('body'), this.options);
+        };
+        Annotation.prototype.getImageService = function () {
+            return this.getBody().reduce(function (finalImageService, body) {
+                return finalImageService || body.getServices().reduce(function (imageService, service) {
+                    return imageService || (Manifesto.Utils.isImageProfile(service.getProfile()) ? service : null);
+                }, finalImageService);
+            }, null);
         };
         return Annotation;
     }(Manifesto.ManifestResource));
@@ -3485,6 +3543,9 @@ var Manifesto;
             var _this = _super.call(this, jsonld) || this;
             _this.label = label;
             _this.options = options;
+            if (_this.getResources().length) {
+                _this.isLoaded = true;
+            }
             return _this;
         }
         AnnotationList.prototype.getIIIFResourceType = function () {
@@ -3495,7 +3556,7 @@ var Manifesto;
         };
         AnnotationList.prototype.getResources = function () {
             var _this = this;
-            var resources = this.getProperty('resources');
+            var resources = this.getProperty('resources') || this.getProperty('items') || [];
             return resources.map(function (resource) { return new Manifesto.Annotation(resource, _this.options); });
         };
         AnnotationList.prototype.load = function () {
@@ -6189,6 +6250,54 @@ module.exports = Array.isArray || function (arr) {
 };
 
 },{}],13:[function(require,module,exports){
+(function (process){
+'use strict';
+
+if (!process.version ||
+    process.version.indexOf('v0.') === 0 ||
+    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
+  module.exports = { nextTick: nextTick };
+} else {
+  module.exports = process
+}
+
+function nextTick(fn, arg1, arg2, arg3) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('"callback" argument must be a function');
+  }
+  var len = arguments.length;
+  var args, i;
+  switch (len) {
+  case 0:
+  case 1:
+    return process.nextTick(fn);
+  case 2:
+    return process.nextTick(function afterTickOne() {
+      fn.call(null, arg1);
+    });
+  case 3:
+    return process.nextTick(function afterTickTwo() {
+      fn.call(null, arg1, arg2);
+    });
+  case 4:
+    return process.nextTick(function afterTickThree() {
+      fn.call(null, arg1, arg2, arg3);
+    });
+  default:
+    args = new Array(len - 1);
+    i = 0;
+    while (i < args.length) {
+      args[i++] = arguments[i];
+    }
+    return process.nextTick(function afterTick() {
+      fn.apply(null, args);
+    });
+  }
+}
+
+
+}).call(this,require('_process'))
+},{"_process":14}],14:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -6374,7 +6483,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 (function (global){
 /*! https://mths.be/punycode v1.4.1 by @mathias */
 ;(function(root) {
@@ -6911,7 +7020,7 @@ process.umask = function() { return 0; };
 }(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -6997,7 +7106,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7084,13 +7193,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":15,"./encode":16}],18:[function(require,module,exports){
+},{"./decode":16,"./encode":17}],19:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7222,7 +7331,7 @@ Duplex.prototype._destroy = function (err, cb) {
 
   pna.nextTick(cb, err);
 };
-},{"./_stream_readable":20,"./_stream_writable":22,"core-util-is":6,"inherits":10,"process-nextick-args":26}],19:[function(require,module,exports){
+},{"./_stream_readable":21,"./_stream_writable":23,"core-util-is":6,"inherits":10,"process-nextick-args":13}],20:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7270,7 +7379,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":21,"core-util-is":6,"inherits":10}],20:[function(require,module,exports){
+},{"./_stream_transform":22,"core-util-is":6,"inherits":10}],21:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -8292,7 +8401,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./_stream_duplex":18,"./internal/streams/BufferList":23,"./internal/streams/destroy":24,"./internal/streams/stream":25,"_process":13,"core-util-is":6,"events":7,"inherits":10,"isarray":12,"process-nextick-args":26,"safe-buffer":29,"string_decoder/":27,"util":3}],21:[function(require,module,exports){
+},{"./_stream_duplex":19,"./internal/streams/BufferList":24,"./internal/streams/destroy":25,"./internal/streams/stream":26,"_process":14,"core-util-is":6,"events":7,"inherits":10,"isarray":12,"process-nextick-args":13,"safe-buffer":29,"string_decoder/":27,"util":3}],22:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -8507,7 +8616,7 @@ function done(stream, er, data) {
 
   return stream.push(null);
 }
-},{"./_stream_duplex":18,"core-util-is":6,"inherits":10}],22:[function(require,module,exports){
+},{"./_stream_duplex":19,"core-util-is":6,"inherits":10}],23:[function(require,module,exports){
 (function (process,global,setImmediate){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -9197,7 +9306,7 @@ Writable.prototype._destroy = function (err, cb) {
   cb(err);
 };
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("timers").setImmediate)
-},{"./_stream_duplex":18,"./internal/streams/destroy":24,"./internal/streams/stream":25,"_process":13,"core-util-is":6,"inherits":10,"process-nextick-args":26,"safe-buffer":29,"timers":34,"util-deprecate":38}],23:[function(require,module,exports){
+},{"./_stream_duplex":19,"./internal/streams/destroy":25,"./internal/streams/stream":26,"_process":14,"core-util-is":6,"inherits":10,"process-nextick-args":13,"safe-buffer":29,"timers":34,"util-deprecate":38}],24:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -9277,7 +9386,7 @@ if (util && util.inspect && util.inspect.custom) {
     return this.constructor.name + ' ' + obj;
   };
 }
-},{"safe-buffer":29,"util":3}],24:[function(require,module,exports){
+},{"safe-buffer":29,"util":3}],25:[function(require,module,exports){
 'use strict';
 
 /*<replacement>*/
@@ -9352,58 +9461,10 @@ module.exports = {
   destroy: destroy,
   undestroy: undestroy
 };
-},{"process-nextick-args":26}],25:[function(require,module,exports){
+},{"process-nextick-args":13}],26:[function(require,module,exports){
 module.exports = require('events').EventEmitter;
 
-},{"events":7}],26:[function(require,module,exports){
-(function (process){
-'use strict';
-
-if (!process.version ||
-    process.version.indexOf('v0.') === 0 ||
-    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
-  module.exports = { nextTick: nextTick };
-} else {
-  module.exports = process
-}
-
-function nextTick(fn, arg1, arg2, arg3) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('"callback" argument must be a function');
-  }
-  var len = arguments.length;
-  var args, i;
-  switch (len) {
-  case 0:
-  case 1:
-    return process.nextTick(fn);
-  case 2:
-    return process.nextTick(function afterTickOne() {
-      fn.call(null, arg1);
-    });
-  case 3:
-    return process.nextTick(function afterTickTwo() {
-      fn.call(null, arg1, arg2);
-    });
-  case 4:
-    return process.nextTick(function afterTickThree() {
-      fn.call(null, arg1, arg2, arg3);
-    });
-  default:
-    args = new Array(len - 1);
-    i = 0;
-    while (i < args.length) {
-      args[i++] = arguments[i];
-    }
-    return process.nextTick(function afterTick() {
-      fn.apply(null, args);
-    });
-  }
-}
-
-
-}).call(this,require('_process'))
-},{"_process":13}],27:[function(require,module,exports){
+},{"events":7}],27:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -9709,7 +9770,7 @@ exports.Duplex = require('./lib/_stream_duplex.js');
 exports.Transform = require('./lib/_stream_transform.js');
 exports.PassThrough = require('./lib/_stream_passthrough.js');
 
-},{"./lib/_stream_duplex.js":18,"./lib/_stream_passthrough.js":19,"./lib/_stream_readable.js":20,"./lib/_stream_transform.js":21,"./lib/_stream_writable.js":22}],29:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":19,"./lib/_stream_passthrough.js":20,"./lib/_stream_readable.js":21,"./lib/_stream_transform.js":22,"./lib/_stream_writable.js":23}],29:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -10269,7 +10330,7 @@ var unsafeHeaders = [
 ]
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"./capability":31,"./response":33,"_process":13,"buffer":4,"inherits":10,"readable-stream":28,"to-arraybuffer":35}],33:[function(require,module,exports){
+},{"./capability":31,"./response":33,"_process":14,"buffer":4,"inherits":10,"readable-stream":28,"to-arraybuffer":35}],33:[function(require,module,exports){
 (function (process,global,Buffer){
 var capability = require('./capability')
 var inherits = require('inherits')
@@ -10497,7 +10558,7 @@ IncomingMessage.prototype._onXHRProgress = function () {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"./capability":31,"_process":13,"buffer":4,"inherits":10,"readable-stream":28}],34:[function(require,module,exports){
+},{"./capability":31,"_process":14,"buffer":4,"inherits":10,"readable-stream":28}],34:[function(require,module,exports){
 (function (setImmediate,clearImmediate){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
@@ -10576,7 +10637,7 @@ exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate :
   delete immediateIds[id];
 };
 }).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":13,"timers":34}],35:[function(require,module,exports){
+},{"process/browser.js":14,"timers":34}],35:[function(require,module,exports){
 var Buffer = require('buffer').Buffer
 
 module.exports = function (buf) {
@@ -11339,7 +11400,7 @@ Url.prototype.parseHost = function() {
   if (host) this.hostname = host;
 };
 
-},{"./util":37,"punycode":14,"querystring":17}],37:[function(require,module,exports){
+},{"./util":37,"punycode":15,"querystring":18}],37:[function(require,module,exports){
 'use strict';
 
 module.exports = {

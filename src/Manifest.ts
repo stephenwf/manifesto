@@ -1,7 +1,7 @@
 namespace Manifesto {
     export class Manifest extends IIIFResource implements IManifest {
         public index: number = 0;
-        private _allRanges: IRange[] | null = null; 
+        private _allRanges: IRange[] | null = null;
         public items: ISequence[] = [];
         private _topRanges: IRange[] = [];
 
@@ -12,7 +12,7 @@ namespace Manifesto {
                 const topRanges: any[] = this._getTopRanges();
 
                 for (let i = 0; i < topRanges.length; i++) {
-                    const range: any = topRanges[i]; 
+                    const range: any = topRanges[i];
                     this._parseRanges(range, String(i));
                 }
             }
@@ -43,7 +43,7 @@ namespace Manifesto {
         }
 
         public getDefaultTree(): ITreeNode {
-            
+
             super.getDefaultTree();
 
             this.defaultTree.data.type = Utils.normaliseType(TreeNodeType.MANIFEST.toString());
@@ -58,7 +58,7 @@ namespace Manifesto {
             if (topRanges.length) {
                 topRanges[0].getTree(this.defaultTree);
             }
-            
+
             Manifesto.Utils.generateTreeNodeIds(this.defaultTree);
 
             return this.defaultTree;
@@ -153,13 +153,13 @@ namespace Manifesto {
                         const id: string = item.id || item['@id'];
 
                         range.canvases.push(id);
-                    } 
+                    }
                 }
             } else if (r.ranges) {
                 for (let i = 0; i < r.ranges.length; i++) {
                     this._parseRanges(r.ranges[i], path + '/' + i, range);
                 }
-            }       
+            }
         }
 
         getAllRanges(): IRange[] {
@@ -176,7 +176,7 @@ namespace Manifesto {
                 if (topRange.id){
                     this._allRanges.push(topRange); // it might be a placeholder root range
                 }
-                const subRanges: IRange[] = topRange.getRanges();        
+                const subRanges: IRange[] = topRange.getRanges();
                 this._allRanges = this._allRanges.concat(subRanges.en().traverseUnique(range => range.getRanges()).toArray());
             }
 
@@ -212,7 +212,7 @@ namespace Manifesto {
         }
 
         getSequences(): ISequence[]{
-            
+
             if (this.items.length)  {
                 return this.items;
             }
@@ -295,6 +295,21 @@ namespace Manifesto {
             }
 
             return null;
+        }
+
+        public getSearchService(): IService | null {
+            const services = this.getServices();
+
+            return services.reduce((found: IService | null, candidateService: IService) => {
+                return found || (
+                    (
+                        candidateService.getProfile().toString() === ServiceProfile.SEARCH.toString() ||
+                        candidateService.getProfile().toString() === ServiceProfile.SEARCH_P3.toString()
+                    )
+                    ? candidateService
+                    : null
+                )
+            }, null);
         }
     }
 }
