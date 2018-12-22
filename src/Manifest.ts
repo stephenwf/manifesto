@@ -186,6 +186,7 @@ namespace Manifesto {
                 const subRanges: IRange[] = Array.from(
                   topRange.getRanges().reduce(reducer, new Set())
                 );
+
                 this._allRanges = this._allRanges.concat(subRanges);
             }
 
